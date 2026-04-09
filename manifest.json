@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Curling Club Bracket Viewer",
+  "version": "1.0",
+  "description": "Displays a graphical tournament bracket tree for curlingseattle.org bonspiels",
+  "permissions": ["activeTab"],
+  "content_scripts": [
+    {
+      "matches": ["*://curlingseattle.org/bonspiels*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ]
+}
