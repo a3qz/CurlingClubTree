@@ -41,12 +41,10 @@
 }
 
 #ccbv-svg-wrapper {
-  overflow-x: auto;
-  overflow-y: auto;
-  max-height: 600px;
   background: #fff;
   border: 1px solid #ddd;
   border-radius: 4px;
+  width: 100%;
 }
 
 /* SVG node styles */

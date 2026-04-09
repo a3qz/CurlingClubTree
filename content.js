@@ -281,7 +281,7 @@
     const stateMap = markStates(root);
 
     const parts = [];
-    parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}">`);
+    parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgW} ${svgH}" width="100%" style="display:block">`);
 
     // Collect all nodes
     const allNodes = [];
