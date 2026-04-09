@@ -160,9 +160,8 @@
 
   const NODE_W = 150;
   const NODE_H = 68;
-  const COL_GAP = 50;   // horizontal gap between columns
-  const ROW_GAP = 14;   // vertical gap between rows
-  const AXIS_H = 0;     // no separate time axis — time is shown inside nodes
+  const COL_GAP = 20;   // horizontal gap between sibling branches
+  const ROW_GAP = 60;   // vertical gap between depth levels (space for edges)
 
   /** Count the number of leaf nodes in a subtree. */
   function leafCount(node) {
@@ -218,23 +217,27 @@
   }
 
   function layout(root) {
+    // depth → Y (vertical, top-to-bottom)
+    // subtree position → X (horizontal spread)
     const depthMap = assignDepths(root);
-    const rowMap   = new Map();
-    assignRows(root, 0, rowMap);
+    const colMap   = new Map();   // reuse assignRows logic but result is X position
+    assignRows(root, 0, colMap);
 
-    const totalRows = leafCount(root);
-    const colW = NODE_W + COL_GAP;
-    const rowH = NODE_H + ROW_GAP;
-    const maxDepth = Math.max(...depthMap.values());
-    const svgW = (maxDepth + 1) * colW + 20;
-    const svgH = AXIS_H + totalRows * rowH + ROW_GAP;
+    const totalLeaves = leafCount(root);
+    const maxDepth    = Math.max(...depthMap.values());
+
+    const colW = NODE_W + COL_GAP;   // width per leaf slot
+    const rowH = NODE_H + ROW_GAP;   // height per depth level
+
+    const svgW = totalLeaves * colW + COL_GAP;
+    const svgH = (maxDepth + 1) * rowH + ROW_GAP;
 
     const pixMap = new Map();
-    for (const [node, row] of rowMap) {
-      const col = depthMap.get(node) ?? 0;
+    for (const [node, col] of colMap) {
+      const depth = depthMap.get(node) ?? 0;
       pixMap.set(node, {
-        x: col * colW + 10,
-        y: AXIS_H + row * rowH + ROW_GAP / 2,
+        x: col * colW + COL_GAP / 2,
+        y: depth * rowH + ROW_GAP / 2,
       });
     }
 
@@ -285,11 +288,12 @@
     (function collect(n) { if (!n) return; allNodes.push(n); collect(n.winChild); collect(n.loseChild); })(root);
 
     // Draw edges first (behind nodes)
+    // Edges go from bottom-center of parent to top-center of child
     for (const node of allNodes) {
       const from = pixMap.get(node);
       if (!from) continue;
-      const fx = from.x + NODE_W;
-      const fy = from.y + NODE_H / 2;
+      const fx = from.x + NODE_W / 2;   // bottom-center X of parent
+      const fy = from.y + NODE_H;        // bottom of parent
 
       for (const [child, edgeCls, label] of [
         [node.winChild,  'win',  'W'],
@@ -298,16 +302,16 @@
         if (!child) continue;
         const to = pixMap.get(child);
         if (!to) continue;
-        const tx = to.x;
-        const ty = to.y + NODE_H / 2;
-        const mx = fx + (tx - fx) * 0.55;
-        // Dashed edge for potential future games
+        const tx = to.x + NODE_W / 2;   // top-center X of child
+        const ty = to.y;                 // top of child
+        const my = fy + (ty - fy) * 0.5;
         const childState = stateMap.get(child) || 'potential';
         const dashAttr = childState === 'potential' ? ' stroke-dasharray="6,4"' : '';
-        parts.push(`<path class="ccbv-edge ccbv-edge-${edgeCls}"${dashAttr} d="M${fx},${fy} C${mx},${fy} ${mx},${ty} ${tx},${ty}"/>`);
-        const lx = (fx + tx) / 2;
-        const ly = (fy + ty) / 2;
-        parts.push(`<text class="ccbv-edge-label ccbv-edge-label-${edgeCls}" x="${lx}" y="${ly + 4}" text-anchor="middle">${label}</text>`);
+        parts.push(`<path class="ccbv-edge ccbv-edge-${edgeCls}"${dashAttr} d="M${fx},${fy} C${fx},${my} ${tx},${my} ${tx},${ty}"/>`);
+        // Label offset slightly to the side so it doesn't overlap the edge
+        const lx = (fx + tx) / 2 + (edgeCls === 'win' ? -10 : 10);
+        const ly = my;
+        parts.push(`<text class="ccbv-edge-label ccbv-edge-label-${edgeCls}" x="${lx}" y="${ly}" text-anchor="middle">${label}</text>`);
       }
     }
 
