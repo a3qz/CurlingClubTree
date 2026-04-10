@@ -146,15 +146,37 @@
   margin-right: 2px;
 }
 
+/* Day band labels */
+.ccbv-day-band-label {
+  font-size: 12px;
+  font-weight: bold;
+  font-family: Arial, sans-serif;
+  fill: #aaa;
+  letter-spacing: 0.5px;
+}
+
 /* Time axis */
-.ccbv-time-label {
+.ccbv-axis-spine {
+  stroke: #bbb;
+  stroke-width: 1.5;
+}
+.ccbv-axis-tick {
+  stroke: #bbb;
+  stroke-width: 1.5;
+}
+.ccbv-axis-day {
+  font-size: 11px;
+  font-weight: bold;
+  fill: #444;
+  font-family: Arial, sans-serif;
+}
+.ccbv-axis-time {
   font-size: 10px;
   fill: #666;
   font-family: Arial, sans-serif;
 }
-
 .ccbv-time-line {
-  stroke: #e0e0e0;
+  stroke: #ececec;
   stroke-width: 1;
   stroke-dasharray: 4,4;
 }

@@ -160,8 +160,8 @@
 
   const NODE_W = 150;
   const NODE_H = 68;
-  const COL_GAP = 20;   // horizontal gap between sibling branches
-  const ROW_GAP = 60;   // vertical gap between depth levels (space for edges)
+  const COL_GAP = 20;    // horizontal gap between sibling branches
+  const TIME_AXIS_W = 90; // left margin reserved for the time axis
 
   /** Count the number of leaf nodes in a subtree. */
   function leafCount(node) {
@@ -171,25 +171,58 @@
     return (wc + lc) || 1;
   }
 
-  /**
-   * Assign depth (column) to every node via BFS from root.
-   * Win and lose children are both one column to the right of their parent.
-   * Nodes at the same depth may share a column even if on different bracket tiers.
-   */
-  function assignDepths(root) {
-    const depthMap = new Map();
-    const queue = [[root, 0]];
-    while (queue.length) {
-      const [node, d] = queue.shift();
-      if (!node || depthMap.has(node)) continue;
-      depthMap.set(node, d);
-      if (node.winChild) queue.push([node.winChild, d + 1]);
-      if (node.loseChild) queue.push([node.loseChild, d + 1]);
-    }
-    return depthMap;
+  /** Convert a timeVal (day*10000 + h*100 + m) to total minutes since Monday midnight. */
+  function timeValToMinutes(tv) {
+    if (!tv || tv >= 99999) return null;
+    const day = Math.floor(tv / 10000);
+    const h   = Math.floor((tv % 10000) / 100);
+    const m   = tv % 100;
+    return day * 1440 + h * 60 + m;
   }
 
-  /** Compute row positions (0-based float) via subtree centering. */
+  /**
+   * Build a Map<timeVal → pixelY> so that:
+   *   • Y positions are proportional to real time (TARGET_HEIGHT covers the full span)
+   *   • Adjacent draw slots are pushed apart to at least MIN_GAP pixels so nodes never overlap
+   */
+  function buildTimeYMap(root) {
+    const allTVs = new Set();
+    (function collect(n) {
+      if (!n) return;
+      allTVs.add(n.timeVal);
+      collect(n.winChild);
+      collect(n.loseChild);
+    })(root);
+
+    const sorted = Array.from(allTVs)
+      .filter(tv => tv < 99999)
+      .sort((a, b) => a - b);
+
+    if (sorted.length === 0) return new Map();
+    if (sorted.length === 1) return new Map([[sorted[0], 10]]);
+
+    const TARGET_HEIGHT = 1000;  // proportional total height before push-apart
+    const MIN_GAP = NODE_H + 50; // minimum pixels between consecutive draw slots
+
+    const mins = sorted.map(timeValToMinutes);
+    const span = mins[mins.length - 1] - mins[0];
+    const scale = TARGET_HEIGHT / span;
+
+    // First pass: proportional Y
+    const propY = mins.map(m => (m - mins[0]) * scale);
+
+    // Second pass: push apart any slots that are too close
+    const finalY = [propY[0]];
+    for (let i = 1; i < sorted.length; i++) {
+      finalY.push(Math.max(propY[i], finalY[i - 1] + MIN_GAP));
+    }
+
+    const map = new Map();
+    for (let i = 0; i < sorted.length; i++) map.set(sorted[i], finalY[i]);
+    return map;
+  }
+
+  /** Compute horizontal (X) slot positions (0-based float) via subtree centering. */
   function assignRows(node, startRow, rowMap) {
     if (!node) return startRow;
     const wLeaves = leafCount(node.winChild);
@@ -217,31 +250,27 @@
   }
 
   function layout(root) {
-    // depth → Y (vertical, top-to-bottom)
-    // subtree position → X (horizontal spread)
-    const depthMap = assignDepths(root);
-    const colMap   = new Map();   // reuse assignRows logic but result is X position
-    assignRows(root, 0, colMap);
+    const timeYMap = buildTimeYMap(root);  // timeVal → Y pixel
+    const colMap   = new Map();
+    assignRows(root, 0, colMap);           // node → X slot (0-based float)
 
     const totalLeaves = leafCount(root);
-    const maxDepth    = Math.max(...depthMap.values());
+    const colW = NODE_W + COL_GAP;
 
-    const colW = NODE_W + COL_GAP;   // width per leaf slot
-    const rowH = NODE_H + ROW_GAP;   // height per depth level
-
-    const svgW = totalLeaves * colW + COL_GAP;
-    const svgH = (maxDepth + 1) * rowH + ROW_GAP;
+    const maxY = Math.max(...timeYMap.values());
+    const svgW = TIME_AXIS_W + totalLeaves * colW + COL_GAP;
+    const svgH = maxY + NODE_H + 20;
 
     const pixMap = new Map();
     for (const [node, col] of colMap) {
-      const depth = depthMap.get(node) ?? 0;
+      const y = timeYMap.get(node.timeVal) ?? 10;
       pixMap.set(node, {
-        x: col * colW + COL_GAP / 2,
-        y: depth * rowH + ROW_GAP / 2,
+        x: TIME_AXIS_W + col * colW + COL_GAP / 2,
+        y,
       });
     }
 
-    return { pixMap, svgW, svgH };
+    return { pixMap, timeYMap, svgW, svgH };
   }
 
   // ── SVG Builder ───────────────────────────────────────────────────────────
@@ -277,11 +306,93 @@
   }
 
   function buildSVG(root) {
-    const { pixMap, svgW, svgH } = layout(root);
+    const { pixMap, timeYMap, svgW, svgH } = layout(root);
     const stateMap = markStates(root);
+
+    // Sorted timeVals for interpolation
+    const sortedTVs = Array.from(timeYMap.keys()).sort((a, b) => a - b);
+
+    /**
+     * Return the pixel Y for any timeVal, interpolating between known draw slots.
+     * Interpolates between the bottom of the previous node and the top of the next.
+     */
+    function yForTime(tv) {
+      if (timeYMap.has(tv)) return timeYMap.get(tv);
+      const targetMins = timeValToMinutes(tv);
+      if (targetMins === null) return 0;
+      let prevTV = null, nextTV = null;
+      for (const t of sortedTVs) {
+        const m = timeValToMinutes(t);
+        if (m <= targetMins) prevTV = t;
+        else if (nextTV === null) nextTV = t;
+      }
+      if (prevTV === null) return 0;
+      if (nextTV === null) return svgH;
+      const m0 = timeValToMinutes(prevTV), m1 = timeValToMinutes(nextTV);
+      const y0 = timeYMap.get(prevTV) + NODE_H;  // bottom of last event before this time
+      const y1 = timeYMap.get(nextTV);            // top of first event after this time
+      const frac = (targetMins - m0) / (m1 - m0);
+      return y0 + frac * (y1 - y0);
+    }
 
     const parts = [];
     parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgW} ${svgH}" width="100%" style="display:block">`);
+
+    // ── Day background bands ──
+    const DAY_COLORS = [
+      '#f3eeff', // Mon – soft purple
+      '#fff8e6', // Tue – warm amber
+      '#e6f7ff', // Wed – sky blue
+      '#fff3e6', // Thu – peach
+      '#fffbe6', // Fri – light gold
+      '#e8efff', // Sat – periwinkle blue
+      '#edfff3', // Sun – mint green
+    ];
+    const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+    const firstDay = Math.floor(sortedTVs[0] / 10000);
+    const lastDay  = Math.floor(sortedTVs[sortedTVs.length - 1] / 10000);
+
+    for (let day = firstDay; day <= lastDay; day++) {
+      const bandY1 = day === firstDay ? 0 : yForTime(day * 10000);
+      const bandY2 = day === lastDay  ? svgH : yForTime((day + 1) * 10000);
+      const color  = DAY_COLORS[day % 7];
+      const name   = DAY_NAMES[day % 7];
+      parts.push(`<rect x="0" y="${bandY1.toFixed(1)}" width="${svgW}" height="${(bandY2 - bandY1).toFixed(1)}" fill="${color}"/>`);
+      // Day label centered in the band, on the axis side
+      const labelY = ((bandY1 + bandY2) / 2).toFixed(1);
+      parts.push(`<text class="ccbv-day-band-label" x="${(TIME_AXIS_W - 20).toFixed(1)}" y="${labelY}" text-anchor="end" dominant-baseline="middle">${name}</text>`);
+    }
+
+    // ── Time axis (left side) ──
+    // Vertical spine
+    parts.push(`<line class="ccbv-axis-spine" x1="${TIME_AXIS_W - 8}" y1="0" x2="${TIME_AXIS_W - 8}" y2="${svgH}"/>`);
+    // One tick + label per unique draw time
+    // Build a map from timeVal → label using node data
+    const tvLabels = new Map();
+    (function collectLabels(n) {
+      if (!n) return;
+      if (n.timeVal < 99999 && n.time && !tvLabels.has(n.timeVal))
+        tvLabels.set(n.timeVal, n.time);
+      collectLabels(n.winChild);
+      collectLabels(n.loseChild);
+    })(root);
+
+    for (const [tv, label] of tvLabels) {
+      const y = timeYMap.get(tv);
+      if (y == null) continue;
+      const cy = y + NODE_H / 2;  // center of the node at this time
+      // Tick mark
+      parts.push(`<line class="ccbv-axis-tick" x1="${TIME_AXIS_W - 14}" y1="${cy}" x2="${TIME_AXIS_W - 8}" y2="${cy}"/>`);
+      // Horizontal guide line across whole chart
+      parts.push(`<line class="ccbv-time-line" x1="${TIME_AXIS_W - 8}" y1="${cy}" x2="${svgW}" y2="${cy}"/>`);
+      // Label: split "Saturday 4:00 pm" into two lines
+      const parts2 = label.split(' ');
+      const day  = parts2[0] || '';
+      const time = parts2.slice(1).join(' ');
+      parts.push(`<text class="ccbv-axis-day"  x="${TIME_AXIS_W - 16}" y="${cy - 5}"  text-anchor="end">${escXml(day)}</text>`);
+      parts.push(`<text class="ccbv-axis-time" x="${TIME_AXIS_W - 16}" y="${cy + 10}" text-anchor="end">${escXml(time)}</text>`);
+    }
 
     // Collect all nodes
     const allNodes = [];
