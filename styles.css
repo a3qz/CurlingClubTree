@@ -180,3 +180,20 @@
   stroke-width: 1;
   stroke-dasharray: 4,4;
 }
+
+/* Extended gap indicators */
+.ccbv-gap-band {
+  fill: rgba(0,0,0,0.04);
+}
+.ccbv-axis-break {
+  fill: none;
+  stroke: #bbb;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.ccbv-gap-label {
+  font-size: 9px;
+  fill: #999;
+  font-family: Arial, sans-serif;
+  font-style: italic;
+}

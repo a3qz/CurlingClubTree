@@ -365,9 +365,12 @@
     }
 
     // ── Time axis (left side) ──
+    const SPINE_X = TIME_AXIS_W - 8;
+    const GAP_THRESHOLD_MINS = 180; // gaps ≥ 3 hours get a break indicator
+
     // Vertical spine
-    parts.push(`<line class="ccbv-axis-spine" x1="${TIME_AXIS_W - 8}" y1="0" x2="${TIME_AXIS_W - 8}" y2="${svgH}"/>`);
-    // One tick + label per unique draw time
+    parts.push(`<line class="ccbv-axis-spine" x1="${SPINE_X}" y1="0" x2="${SPINE_X}" y2="${svgH}"/>`);
+
     // Build a map from timeVal → label using node data
     const tvLabels = new Map();
     (function collectLabels(n) {
@@ -378,20 +381,55 @@
       collectLabels(n.loseChild);
     })(root);
 
+    // ── Extended-gap break indicators ──
+    for (let i = 0; i < sortedTVs.length - 1; i++) {
+      const tvA = sortedTVs[i], tvB = sortedTVs[i + 1];
+      const minsA = timeValToMinutes(tvA), minsB = timeValToMinutes(tvB);
+      if (minsA == null || minsB == null) continue;
+      const gapMins = minsB - minsA;
+      if (gapMins < GAP_THRESHOLD_MINS) continue;
+
+      // Y range of the visual gap: bottom of earlier node → top of later node
+      const gapTop    = (timeYMap.get(tvA) ?? 0) + NODE_H;
+      const gapBottom = timeYMap.get(tvB) ?? 0;
+      const midY      = (gapTop + gapBottom) / 2;
+
+      // Format gap label: "4h 30m" or "8h"
+      const hrs  = Math.floor(gapMins / 60);
+      const mins = gapMins % 60;
+      const gapLabel = mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+
+      // Shaded gap band across the full chart
+      parts.push(`<rect class="ccbv-gap-band" x="${SPINE_X}" y="${gapTop.toFixed(1)}" width="${svgW - SPINE_X}" height="${(gapBottom - gapTop).toFixed(1)}"/>`);
+
+      // Erase spine behind the zigzag, then draw zigzag break
+      const zH = 12; // half-height of zigzag symbol
+      parts.push(`<rect x="${SPINE_X - 7}" y="${(midY - zH).toFixed(1)}" width="15" height="${(zH * 2).toFixed(1)}" fill="white"/>`);
+      parts.push(`<polyline class="ccbv-axis-break"
+        points="${SPINE_X - 5},${(midY - zH).toFixed(1)}
+                 ${SPINE_X + 5},${(midY - zH / 3).toFixed(1)}
+                 ${SPINE_X - 5},${(midY + zH / 3).toFixed(1)}
+                 ${SPINE_X + 5},${(midY + zH).toFixed(1)}"/>`);
+
+      // Gap duration label
+      parts.push(`<text class="ccbv-gap-label" x="${SPINE_X - 10}" y="${midY.toFixed(1)}" text-anchor="end" dominant-baseline="middle">${escXml(gapLabel)}</text>`);
+    }
+
+    // One tick + label per unique draw time
     for (const [tv, label] of tvLabels) {
       const y = timeYMap.get(tv);
       if (y == null) continue;
       const cy = y + NODE_H / 2;  // center of the node at this time
       // Tick mark
-      parts.push(`<line class="ccbv-axis-tick" x1="${TIME_AXIS_W - 14}" y1="${cy}" x2="${TIME_AXIS_W - 8}" y2="${cy}"/>`);
+      parts.push(`<line class="ccbv-axis-tick" x1="${SPINE_X - 6}" y1="${cy}" x2="${SPINE_X}" y2="${cy}"/>`);
       // Horizontal guide line across whole chart
-      parts.push(`<line class="ccbv-time-line" x1="${TIME_AXIS_W - 8}" y1="${cy}" x2="${svgW}" y2="${cy}"/>`);
+      parts.push(`<line class="ccbv-time-line" x1="${SPINE_X}" y1="${cy}" x2="${svgW}" y2="${cy}"/>`);
       // Label: split "Saturday 4:00 pm" into two lines
       const parts2 = label.split(' ');
       const day  = parts2[0] || '';
       const time = parts2.slice(1).join(' ');
-      parts.push(`<text class="ccbv-axis-day"  x="${TIME_AXIS_W - 16}" y="${cy - 5}"  text-anchor="end">${escXml(day)}</text>`);
-      parts.push(`<text class="ccbv-axis-time" x="${TIME_AXIS_W - 16}" y="${cy + 10}" text-anchor="end">${escXml(time)}</text>`);
+      parts.push(`<text class="ccbv-axis-day"  x="${SPINE_X - 9}" y="${cy - 5}"  text-anchor="end">${escXml(day)}</text>`);
+      parts.push(`<text class="ccbv-axis-time" x="${SPINE_X - 9}" y="${cy + 10}" text-anchor="end">${escXml(time)}</text>`);
     }
 
     // Collect all nodes
@@ -512,6 +550,9 @@
     .ccbv-axis-day  { font-size: 11px; font-weight: bold; fill: #444; font-family: Arial, sans-serif; }
     .ccbv-axis-time { font-size: 10px; fill: #666; font-family: Arial, sans-serif; }
     .ccbv-time-line { stroke: #ececec; stroke-width: 1; stroke-dasharray: 4,4; }
+    .ccbv-gap-band { fill: rgba(0,0,0,0.04); }
+    .ccbv-axis-break { fill: none; stroke: #bbb; stroke-width: 1.5; stroke-linejoin: round; }
+    .ccbv-gap-label { font-size: 9px; fill: #999; font-family: Arial, sans-serif; font-style: italic; }
   `;
 
   function exportableSVGString() {
