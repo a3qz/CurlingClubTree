@@ -566,14 +566,21 @@
                : fr ? fr.textContent.replace(/\u00a0/g,' ').trim()
                : text.substring(vsIdx+3).trim().split('\n')[0].trim();
     }
+    const wonPrefix  = /^\s*Won\b/i.test(text);
+    const lostPrefix = /^\s*Lost\b/i.test(text);
     const sm = text.match(/\b(\d+)\s*[-–]\s*(\d+)\b/);
+    const won = wonPrefix  ? true
+              : lostPrefix ? false
+              : /\bW\b/.test(text)&&sm ? true
+              : /\bL\b/.test(text)&&sm ? false
+              : null;
     return {
       gameId, tier: getTier(gameId),
       time: tm ? tm[0].trim() : null,
       timeVal: tm ? parseDrawTime(tm[0]) : 99999,
       opponent,
       score: sm ? `${sm[1]}-${sm[2]}` : null,
-      won: /\bW\b/.test(text)&&sm ? true : /\bL\b/.test(text)&&sm ? false : null,
+      won,
       winChild: null, loseChild: null,
     };
   }
@@ -604,20 +611,26 @@
   }
 
   function parseTree(doc) {
-    let rootSpan=null;
-    for (const el of doc.querySelectorAll('div[style*="margin-top"] span'))
-      if (/Game\s+[A-Z]\d+/i.test(el.textContent)) { rootSpan=el; break; }
-    if (!rootSpan) return null;
-    const rootDiv=rootSpan.closest('div[style*="margin-top"]');
-    const rootNode=parseGameText(rootDiv||rootSpan);
-    if (!rootNode) return null;
-    let connector=rootDiv?rootDiv.nextElementSibling:null;
+    // Mid-tournament the page emits one div[style*="margin-top"] per locked-in
+    // game instead of a single root + connector tree. Collect them all, chain
+    // them in order, then look for the connector tree after the last one.
+    const rootDivs=[...doc.querySelectorAll('div[style*="margin-top"]')]
+      .filter(el=>/Game\s+[A-Z]\d+/i.test(el.textContent));
+    if (!rootDivs.length) return null;
+    const nodes=rootDivs.map(el=>parseGameText(el)).filter(Boolean);
+    if (!nodes.length) return null;
+    for (let i=0;i<nodes.length-1;i++) {
+      const p=nodes[i], c=nodes[i+1];
+      if (p.won!==false) p.winChild=c; else p.loseChild=c;
+    }
+    const last=rootDivs[rootDivs.length-1];
+    let connector=last.nextElementSibling;
     while (connector&&connector.tagName!=='DIV') connector=connector.nextElementSibling;
     if (connector) parseContainer(connector).forEach(c=>{
-      if (c.outcome==='win') rootNode.winChild=c.node;
-      else if (c.outcome==='lose') rootNode.loseChild=c.node;
+      if (c.outcome==='win') nodes[nodes.length-1].winChild=c.node;
+      else if (c.outcome==='lose') nodes[nodes.length-1].loseChild=c.node;
     });
-    return rootNode;
+    return nodes[0];
   }
 
   function getTeamName(doc) {
@@ -768,6 +781,7 @@
       p.push(`  <rect width="${NODE_W}" height="${NODE_H}" rx="5"/>`);
       p.push(`  <text class="game-id" x="7" y="17">${esc(n.gameId)}</text>`);
       if (n.score) p.push(`  <text class="game-score" x="${NODE_W-6}" y="17" text-anchor="end">${esc((n.won===true?'✓':n.won===false?'✗':'')+' '+n.score)}</text>`);
+      else if (n.won!==null) p.push(`  <text class="game-score" x="${NODE_W-6}" y="17" text-anchor="end">${esc(n.won===true?'✓':'✗')}</text>`);
       else if (st==='next') p.push(`  <text class="game-next-label" x="${NODE_W-6}" y="17" text-anchor="end">▶ Next</text>`);
       else if (st==='potential') p.push(`  <text class="game-potential-label" x="${NODE_W-6}" y="17" text-anchor="end">?</text>`);
       p.push(`  <line x1="0" y1="22" x2="${NODE_W}" y2="22" stroke="rgba(0,0,0,.15)" stroke-width="1"/>`);

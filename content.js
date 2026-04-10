@@ -63,9 +63,15 @@
       }
     }
 
+    // Detect "Won"/"Lost" prefix (page shows result without digit score)
+    const wonPrefix  = /^\s*Won\b/i.test(text);
+    const lostPrefix = /^\s*Lost\b/i.test(text);
+
     // Check for score — look for "W X-Y" or "L X-Y" pattern, or just "X-Y"
     const scoreMatch = text.match(/\b(\d+)\s*[-–]\s*(\d+)\b/);
-    const won = /\bW\b/.test(text) && scoreMatch ? true
+    const won = wonPrefix  ? true
+              : lostPrefix ? false
+              : /\bW\b/.test(text) && scoreMatch ? true
               : /\bL\b/.test(text) && scoreMatch ? false
               : null;
 
@@ -125,35 +131,47 @@
   /**
    * Find and parse the entire game tree from the page.
    * Returns the root node.
+   *
+   * Mid-tournament the page emits one div[style*="margin-top"] per locked-in
+   * game (completed or next scheduled) rather than a single root + connector
+   * tree.  We collect them all, chain them in order, then look for a connector
+   * tree after the last one to pick up future potential games.
    */
   function parseTree() {
-    // Root game is in a <span> inside a margin-top div (no <em>)
-    let rootSpan = null;
-    for (const el of document.querySelectorAll('div[style*="margin-top"] span')) {
-      if (/Game\s+[A-Z]\d+/i.test(el.textContent)) { rootSpan = el; break; }
+    // Collect all margin-top divs that reference a game, in DOM order.
+    const rootDivs = [];
+    for (const el of document.querySelectorAll('div[style*="margin-top"]')) {
+      if (/Game\s+[A-Z]\d+/i.test(el.textContent)) rootDivs.push(el);
     }
-    if (!rootSpan) return null;
+    if (rootDivs.length === 0) return null;
 
-    const rootNode = parseGameText(rootSpan.closest('div[style*="margin-top"]') || rootSpan);
-    if (!rootNode) return null;
+    const nodes = rootDivs.map(el => parseGameText(el)).filter(Boolean);
+    if (nodes.length === 0) return null;
 
-    // The connector container is the next sibling DIV after the root game div.
-    // There may be a <style> tag in between — skip non-div siblings.
-    const rootDiv = rootSpan.closest('div[style*="margin-top"]');
-    let connector = rootDiv ? rootDiv.nextElementSibling : null;
-    while (connector && connector.tagName !== 'DIV') {
-      connector = connector.nextElementSibling;
+    // Chain played games to the next locked-in game.
+    // A won game links via winChild; a lost game via loseChild.
+    for (let i = 0; i < nodes.length - 1; i++) {
+      const parent = nodes[i];
+      const child  = nodes[i + 1];
+      if (parent.won !== false) parent.winChild  = child;
+      else                      parent.loseChild = child;
     }
 
+    // The future-game connector tree lives after the last locked-in div.
+    const lastRootDiv = rootDivs[rootDivs.length - 1];
+    let connector = lastRootDiv.nextElementSibling;
+    while (connector && connector.tagName !== 'DIV') connector = connector.nextElementSibling;
+
+    const lastNode = nodes[nodes.length - 1];
     if (connector) {
       const children = parseContainer(connector);
       for (const c of children) {
-        if (c.outcome === 'win') rootNode.winChild = c.node;
-        else if (c.outcome === 'lose') rootNode.loseChild = c.node;
+        if (c.outcome === 'win')       lastNode.winChild  = c.node;
+        else if (c.outcome === 'lose') lastNode.loseChild = c.node;
       }
     }
 
-    return rootNode;
+    return nodes[0];
   }
 
   // ── Layout ────────────────────────────────────────────────────────────────
@@ -483,6 +501,10 @@
       if (node.score) {
         const icon = node.won === true ? '✓' : node.won === false ? '✗' : '';
         parts.push(`  <text class="game-score" x="${NODE_W - 6}" y="17" text-anchor="end">${escXml(icon + ' ' + node.score)}</text>`);
+      } else if (node.won !== null) {
+        // Played but no digit score shown (e.g. "Won Thursday..." format)
+        const icon = node.won === true ? '✓' : '✗';
+        parts.push(`  <text class="game-score" x="${NODE_W - 6}" y="17" text-anchor="end">${escXml(icon)}</text>`);
       } else if (state === 'next') {
         parts.push(`  <text class="game-next-label" x="${NODE_W - 6}" y="17" text-anchor="end">▶ Next</text>`);
       } else if (state === 'potential') {
@@ -663,11 +685,19 @@
       <div id="ccbv-svg-wrapper">${svg}</div>
     `;
 
-    // Insert before the root game div
-    let anchor = null;
-    for (const el of document.querySelectorAll('div[style*="margin-top"]')) {
-      if (/Game\s+[A-Z]\d+/i.test(el.textContent)) { anchor = el; break; }
+    // Collect all original game divs (may be multiple mid-tournament)
+    const origDivs = [...document.querySelectorAll('div[style*="margin-top"]')]
+      .filter(el => /Game\s+[A-Z]\d+/i.test(el.textContent));
+    const anchor = origDivs[0] || null;
+
+    // Also grab the connector tree that follows the last root div
+    if (origDivs.length > 0) {
+      const last = origDivs[origDivs.length - 1];
+      let connector = last.nextElementSibling;
+      while (connector && connector.tagName !== 'DIV') connector = connector.nextElementSibling;
+      if (connector && !origDivs.includes(connector)) origDivs.push(connector);
     }
+
     if (anchor) {
       anchor.parentNode.insertBefore(container, anchor);
     } else {
@@ -677,13 +707,10 @@
     document.getElementById('ccbv-dl-svg').addEventListener('click', () => downloadSVG(teamName));
     document.getElementById('ccbv-dl-png').addEventListener('click', () => downloadPNG(teamName));
 
-    // Toggle original view (the root game div + its connector sibling)
+    // Toggle original view (all root game divs + connector tree)
     document.getElementById('ccbv-toggle').addEventListener('click', function () {
-      const targets = anchor
-        ? [anchor, anchor.nextElementSibling].filter(Boolean)
-        : [];
-      const hidden = targets[0]?.style.display === 'none';
-      targets.forEach(t => t.style.display = hidden ? '' : 'none');
+      const hidden = origDivs[0]?.style.display === 'none';
+      origDivs.forEach(t => t.style.display = hidden ? '' : 'none');
       this.textContent = hidden ? 'Hide Original' : 'Show Original';
     });
   }

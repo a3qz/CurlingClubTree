@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:curlingseattle.org)"
-    ]
+      "WebFetch(domain:curlingseattle.org)",
+      "Skill(update-config)"
+    ],
+    "defaultMode": "bypassPermissions"
   }
 }
