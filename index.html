@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Curling Bracket Viewer</title>
+  <style>
+    /* ── Reset & base ──────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #f0f2f5; color: #222; min-height: 100vh; }
+    a { color: inherit; text-decoration: none; }
+    button { cursor: pointer; font-family: inherit; }
+
+    /* ── Header ────────────────────────────────────────────────────────────── */
+    #site-header {
+      background: #1a3a5c;
+      color: #fff;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 0;
+      height: 52px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: 0 2px 6px rgba(0,0,0,.25);
+    }
+    #site-header .logo { font-size: 1.1rem; font-weight: bold; white-space: nowrap; }
+    #site-header .logo span { opacity: .6; font-weight: normal; font-size: .85rem; margin-left: 8px; }
+
+    /* breadcrumb */
+    #breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 20px;
+      font-size: .85rem;
+      flex-wrap: wrap;
+    }
+    #breadcrumb .crumb { opacity: .7; }
+    #breadcrumb .crumb.link { opacity: 1; cursor: pointer; text-decoration: underline; text-decoration-color: rgba(255,255,255,.4); }
+    #breadcrumb .crumb.link:hover { opacity: .85; }
+    #breadcrumb .sep { opacity: .4; }
+    #breadcrumb .crumb.current { font-weight: bold; opacity: 1; }
+
+    /* ── Main content ───────────────────────────────────────────────────────── */
+    #main { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+
+    /* ── Status bar ─────────────────────────────────────────────────────────── */
+    #status { padding: 12px 16px; border-radius: 6px; font-size: .9rem; margin-bottom: 20px; display: none; }
+    #status.loading { background: #dce8ff; color: #1a3a5c; display: block; }
+    #status.error   { background: #fdecea; color: #b00020; display: block; }
+
+    /* ── View containers ────────────────────────────────────────────────────── */
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* ── Bonspiel list ──────────────────────────────────────────────────────── */
+    .section-label {
+      font-size: .7rem;
+      font-weight: bold;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #888;
+      margin: 28px 0 10px;
+    }
+    .section-label:first-child { margin-top: 0; }
+
+    .event-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 12px;
+    }
+
+    .event-card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: box-shadow .15s, border-color .15s;
+    }
+    .event-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,.1); border-color: #1a3a5c; }
+    .event-card .ev-name { font-weight: bold; font-size: .95rem; margin-bottom: 4px; }
+    .event-card .ev-id   { font-size: .75rem; color: #999; }
+
+    /* status pill */
+    .event-card .ev-status {
+      display: inline-block;
+      font-size: .65rem;
+      font-weight: bold;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 20px;
+      margin-bottom: 8px;
+    }
+    .pill-upcoming  { background: #dff0d8; color: #2d6a2d; }
+    .pill-planning  { background: #d9edf7; color: #1a5276; }
+    .pill-completed { background: #f5f5f5; color: #888; }
+
+    /* ── Team list ──────────────────────────────────────────────────────────── */
+    #event-title { font-size: 1.3rem; font-weight: bold; margin: 0 0 4px; }
+    #event-meta  { font-size: .85rem; color: #777; margin: 0 0 20px; }
+
+    #team-search {
+      width: 100%;
+      max-width: 360px;
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: .9rem;
+      margin-bottom: 16px;
+      display: block;
+    }
+    #team-search:focus { outline: 2px solid #1a3a5c; border-color: transparent; }
+
+    .team-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+    }
+
+    .team-card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px 14px;
+      cursor: pointer;
+      transition: box-shadow .15s, border-color .15s;
+    }
+    .team-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,.1); border-color: #1a3a5c; }
+    .team-card .tc-name { font-weight: bold; font-size: .9rem; margin-bottom: 4px; line-height: 1.3; overflow-wrap: break-word; word-break: break-word; }
+    .team-card .tc-from { font-size: .75rem; color: #888; margin-bottom: 4px; }
+    .team-card .tc-game { font-size: .72rem; color: #aaa; }
+
+    /* ── Bracket view ───────────────────────────────────────────────────────── */
+    #bracket-team-name  { font-size: 1.3rem; font-weight: bold; margin: 0 0 2px; }
+    #bracket-event-name { font-size: .85rem; color: #777; margin: 0 0 16px; }
+
+    #bracket-controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    #bracket-controls button {
+      padding: 5px 12px;
+      font-size: .8rem;
+      border: 1px solid #999;
+      border-radius: 4px;
+      background: #fff;
+    }
+    #bracket-controls button:hover { background: #e8e8e8; }
+
+    .ccbv-legend { font-size: .75rem; color: #555; }
+    .ccbv-swatch {
+      display: inline-block; width: 12px; height: 12px;
+      border: 1px solid; vertical-align: middle; margin-right: 2px;
+    }
+
+    #svg-wrapper { width: 100%; background: #fff; border: 1px solid #ddd; border-radius: 8px; }
+
+    /* ── SVG styles ─────────────────────────────────────────────────────────── */
+    .ccbv-node rect { stroke-width: 1.5; }
+    .ccbv-node text { font-size: 11px; font-family: Arial, sans-serif; }
+    .game-id            { font-weight: bold; font-size: 12px; font-family: Arial, sans-serif; fill: #222; }
+    .game-time          { font-size: 10px; fill: #555; font-family: Arial, sans-serif; }
+    .game-vs            { font-size: 10px; font-family: Arial, sans-serif; fill: #222; }
+    .game-score         { font-size: 11px; font-weight: bold; font-family: Arial, sans-serif; fill: #222; }
+    .game-next-label    { font-size: 10px; fill: #e67300; font-weight: bold; font-family: Arial, sans-serif; }
+    .game-potential-label { font-size: 13px; fill: #aaa; font-family: Arial, sans-serif; }
+    .game-tier-hint     { font-size: 9px; fill: #888; font-family: Arial, sans-serif; }
+    .ccbv-edge          { fill: none; stroke-width: 2; }
+    .ccbv-edge-label    { font-size: 11px; font-weight: bold; font-family: Arial, sans-serif; }
+    .ccbv-edge-win      { stroke: #2a7a2a; }
+    .ccbv-edge-lose     { stroke: #c0392b; }
+    .ccbv-edge-label-win  { fill: #2a7a2a; }
+    .ccbv-edge-label-lose { fill: #c0392b; }
+    .ccbv-tier-A rect { fill: #FFFFD7; stroke: #c8c800; }
+    .ccbv-tier-B rect { fill: #DCE6F1; stroke: #5b8ec5; }
+    .ccbv-tier-C rect { fill: #F0DCDB; stroke: #c57070; }
+    .ccbv-tier-D rect { fill: #D7D7FF; stroke: #7070c5; }
+    .ccbv-tier-E rect { fill: #e0f0e0; stroke: #70a070; }
+    .ccbv-tier-X rect { fill: #f0f0f0; stroke: #999; }
+    .ccbv-state-done-win  rect { opacity: .75; }
+    .ccbv-state-done-lose rect { opacity: .4; }
+    .ccbv-state-next      rect { stroke-width: 3 !important; stroke: #e67300 !important; }
+    .ccbv-state-potential rect { stroke-dasharray: 5,3; opacity: .6; }
+    .ccbv-day-band-label { font-size: 12px; font-weight: bold; font-family: Arial, sans-serif; fill: #aaa; letter-spacing: .5px; }
+    .ccbv-axis-spine { stroke: #bbb; stroke-width: 1.5; }
+    .ccbv-axis-tick  { stroke: #bbb; stroke-width: 1.5; }
+    .ccbv-axis-day   { font-size: 11px; font-weight: bold; fill: #444; font-family: Arial, sans-serif; }
+    .ccbv-axis-time  { font-size: 10px; fill: #666; font-family: Arial, sans-serif; }
+    .ccbv-time-line  { stroke: #ececec; stroke-width: 1; stroke-dasharray: 4,4; }
+    .ccbv-gap-band   { fill: rgba(0,0,0,.04); }
+    .ccbv-axis-break { fill: none; stroke: #bbb; stroke-width: 1.5; stroke-linejoin: round; }
+    .ccbv-gap-label  { font-size: 9px; fill: #999; font-family: Arial, sans-serif; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<header id="site-header">
+  <div class="logo">🥌 Curling Bracket Viewer</div>
+  <nav id="breadcrumb"></nav>
+</header>
+
+<div id="main">
+  <div id="status"></div>
+
+  <!-- View 1: Bonspiel list -->
+  <div id="view-bonspiels" class="view">
+    <div id="bonspiel-list"></div>
+  </div>
+
+  <!-- View 2: Team list -->
+  <div id="view-teams" class="view">
+    <p id="event-title"></p>
+    <p id="event-meta"></p>
+    <input id="team-search" type="search" placeholder="Search teams…">
+    <div id="team-grid" class="team-grid"></div>
+  </div>
+
+  <!-- View 3: Bracket -->
+  <div id="view-bracket" class="view">
+    <p id="bracket-team-name"></p>
+    <p id="bracket-event-name"></p>
+    <div id="bracket-controls">
+      <button id="dl-svg">⬇ SVG</button>
+      <button id="dl-png">⬇ PNG</button>
+      <span class="ccbv-legend">
+        <span class="ccbv-swatch" style="background:#FFFFD7;border-color:#c8c800"></span>A &nbsp;
+        <span class="ccbv-swatch" style="background:#DCE6F1;border-color:#5b8ec5"></span>B &nbsp;
+        <span class="ccbv-swatch" style="background:#F0DCDB;border-color:#c57070"></span>C &nbsp;
+        <span class="ccbv-swatch" style="background:#D7D7FF;border-color:#7070c5"></span>D &nbsp;
+        <span style="color:#2a7a2a;font-weight:bold">W</span>=win &nbsp;
+        <span style="color:#c0392b;font-weight:bold">L</span>=lose
+      </span>
+    </div>
+    <div id="svg-wrapper"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const PROXY     = 'https://corsproxy.io/?url=';
+  const BASE      = 'https://curlingseattle.org';
+  const BASE_PATH = location.pathname.replace(/\/index\.html$/, '/');
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let currentEvent = null;  // { id, name }
+  let currentTeam  = null;  // { id, name }
+  let allTeams     = [];    // for search filtering
+
+  // ── Routing ───────────────────────────────────────────────────────────────
+  function getParams() {
+    const p = new URLSearchParams(location.search);
+    return { event: p.get('event'), teamid: p.get('teamid') };
+  }
+
+  function navigate(params, push = true) {
+    const sp = new URLSearchParams();
+    if (params.event)  sp.set('event',  params.event);
+    if (params.teamid) sp.set('teamid', params.teamid);
+    const url = sp.toString() ? `${BASE_PATH}?${sp.toString()}` : BASE_PATH;
+    if (push) history.pushState(params, '', url);
+    else      history.replaceState(params, '', url);
+    route(params);
+  }
+
+  function route(params) {
+    if (params.event && params.teamid) {
+      showBracket(params.event, params.teamid);
+    } else if (params.event) {
+      showTeams(params.event);
+    } else {
+      showBonspiels();
+    }
+  }
+
+  window.addEventListener('popstate', e => route(e.state || getParams()));
+
+  // ── View switching ────────────────────────────────────────────────────────
+  function showView(id) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  // ── Breadcrumb ────────────────────────────────────────────────────────────
+  function setBreadcrumb(crumbs) {
+    // crumbs: [{label, params?}]  — last one is current (no link)
+    const nav = document.getElementById('breadcrumb');
+    nav.innerHTML = crumbs.map((c, i) => {
+      const isLast = i === crumbs.length - 1;
+      if (isLast) return `<span class="crumb current">${esc(c.label)}</span>`;
+      const data = JSON.stringify(c.params||{}).replace(/"/g,'&quot;');
+      return `<span class="crumb link" data-params="${data}">${esc(c.label)}</span>
+              <span class="sep">›</span>`;
+    }).join('');
+    nav.querySelectorAll('.crumb.link').forEach(el => {
+      el.addEventListener('click', () => navigate(JSON.parse(el.dataset.params)));
+    });
+  }
+
+  // ── Fetch helper ──────────────────────────────────────────────────────────
+  async function fetchDoc(url) {
+    const res = await fetch(PROXY + encodeURIComponent(url));
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
+    const html = await res.text();
+    return new DOMParser().parseFromString(html, 'text/html');
+  }
+
+  function setStatus(msg, type) {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = type || '';
+  }
+
+  // ── View 1: Bonspiels ─────────────────────────────────────────────────────
+  async function showBonspiels() {
+    showView('view-bonspiels');
+    setBreadcrumb([{ label: 'Bonspiels' }]);
+    currentEvent = null; currentTeam = null;
+
+    const container = document.getElementById('bonspiel-list');
+    if (container.children.length > 0) return; // already loaded
+
+    setStatus('Loading bonspiels…', 'loading');
+    try {
+      const doc = await fetchDoc(BASE + '/bonspiels');
+      setStatus('', '');
+      container.innerHTML = '';
+
+      function pillFor(header) {
+        const h = header.toLowerCase();
+        if (h.includes('upcoming') || h.includes('current')) return ['pill-upcoming', 'Upcoming'];
+        if (h.includes('planning'))                           return ['pill-planning', 'Planning'];
+        return ['pill-completed', 'Past'];
+      }
+
+      // H3s and event links are nested arbitrarily deep — don't walk direct children.
+      // Instead: collect all H3s in document order, then for each link find which
+      // H3 precedes it most closely using compareDocumentPosition.
+      const h3s  = [...doc.querySelectorAll('h3')];
+      const links = [...doc.querySelectorAll('a[href*="event="]')].filter(a => {
+        const href = a.getAttribute('href') || '';
+        return /event=[^&\s]+/.test(href) && !/disp=/.test(href);
+      });
+
+      // Build section buckets: Map<h3 element → [{name, eventId}]>
+      const buckets = new Map(h3s.map(h => [h, []]));
+
+      for (const a of links) {
+        const href = a.getAttribute('href') || '';
+        const m = href.match(/event=([^&\s]+)/);
+        if (!m) continue;
+        // Find the last H3 that appears before this link in document order
+        let ownerH3 = null;
+        for (const h of h3s) {
+          const pos = h.compareDocumentPosition(a);
+          if (pos & Node.DOCUMENT_POSITION_FOLLOWING) ownerH3 = h; // h is before a
+        }
+        if (ownerH3) buckets.get(ownerH3).push({ name: a.textContent.trim(), eventId: m[1] });
+      }
+
+      // Render sections that have at least one event
+      for (const h3 of h3s) {
+        const events = buckets.get(h3);
+        if (!events || !events.length) continue;
+
+        const sectionName = h3.textContent.trim();
+        const [pillCls, pillLabel] = pillFor(sectionName);
+
+        const label = document.createElement('div');
+        label.className = 'section-label';
+        label.textContent = sectionName;
+        container.appendChild(label);
+
+        const grid = document.createElement('div');
+        grid.className = 'event-grid';
+        container.appendChild(grid);
+
+        for (const { name, eventId } of events) {
+          const card = document.createElement('div');
+          card.className = 'event-card';
+          card.innerHTML = `
+            <span class="ev-status ${pillCls}">${pillLabel}</span>
+            <div class="ev-name">${esc(name)}</div>
+            <div class="ev-id">${esc(eventId)}</div>`;
+          card.addEventListener('click', () => navigate({ event: eventId }));
+          grid.appendChild(card);
+        }
+      }
+
+      if (!container.children.length)
+        container.innerHTML = '<p style="color:#888">No bonspiels found.</p>';
+    } catch (err) {
+      setStatus('Could not load bonspiels: ' + err.message, 'error');
+    }
+  }
+
+  // ── View 2: Teams ─────────────────────────────────────────────────────────
+  async function showTeams(eventId) {
+    showView('view-teams');
+    currentTeam = null;
+
+    setStatus('Loading teams…', 'loading');
+    try {
+      const doc = await fetchDoc(`${BASE}/bonspiels?event=${eventId}&disp=teams`);
+      setStatus('', '');
+
+      // Get event name from page heading
+      const h2 = doc.querySelector('.field-item h2, .content h2');
+      const eventName = h2 ? h2.textContent.trim() : eventId;
+      currentEvent = { id: eventId, name: eventName };
+
+      setBreadcrumb([
+        { label: 'Bonspiels', params: {} },
+        { label: eventName },
+      ]);
+
+      document.getElementById('event-title').textContent = eventName;
+
+      // Parse teams from table
+      allTeams = [];
+      for (const a of doc.querySelectorAll('a[href*="teamid"]')) {
+        const href = a.getAttribute('href') || '';
+        const m = href.match(/teamid=(\d+)/);
+        if (!m) continue;
+        const row = a.closest('tr');
+        const cells = row ? Array.from(row.querySelectorAll('td')) : [];
+        allTeams.push({
+          id:        m[1],
+          name:      a.textContent.trim(),
+          from:      cells[1]?.textContent?.trim() || '',
+          firstGame: cells[2]?.textContent?.trim() || '',
+          members:   a.getAttribute('title') || cells[3]?.textContent?.trim() || '',
+        });
+      }
+
+      document.getElementById('event-meta').textContent =
+        `${allTeams.length} team${allTeams.length !== 1 ? 's' : ''}`;
+
+      renderTeamGrid(allTeams, eventId);
+    } catch (err) {
+      setStatus('Could not load teams: ' + err.message, 'error');
+    }
+  }
+
+  function renderTeamGrid(teams, eventId) {
+    teams = [...teams].sort((a, b) => a.name.localeCompare(b.name));
+    const grid = document.getElementById('team-grid');
+    grid.innerHTML = '';
+    if (!teams.length) {
+      grid.innerHTML = '<p style="color:#888;grid-column:1/-1">No teams found.</p>';
+      return;
+    }
+    for (const t of teams) {
+      const card = document.createElement('div');
+      card.className = 'team-card';
+      card.innerHTML = `
+        <div class="tc-name">${esc(t.name)}</div>
+        <div class="tc-from">${esc(t.from)}</div>
+        <div class="tc-game">${esc(t.firstGame)}</div>`;
+      card.addEventListener('click', () => navigate({ event: eventId, teamid: t.id }));
+      grid.appendChild(card);
+    }
+  }
+
+  // Team search
+  document.getElementById('team-search').addEventListener('input', function () {
+    if (!currentEvent) return;
+    const q = this.value.toLowerCase();
+    const filtered = q
+      ? allTeams.filter(t =>
+          t.name.toLowerCase().includes(q) ||
+          t.from.toLowerCase().includes(q) ||
+          t.members.toLowerCase().includes(q))
+      : allTeams;
+    renderTeamGrid(filtered, currentEvent.id);
+  });
+
+  // ── View 3: Bracket ───────────────────────────────────────────────────────
+  async function showBracket(eventId, teamId) {
+    showView('view-bracket');
+    setStatus('Loading bracket…', 'loading');
+
+    try {
+      const doc = await fetchDoc(
+        `${BASE}/bonspiels?event=${eventId}&disp=team&teamid=${teamId}`
+      );
+      setStatus('', '');
+
+      const teamName  = getTeamName(doc);
+      const h2        = doc.querySelector('h2');
+      const eventName = h2 ? h2.textContent.trim() : eventId;
+
+      currentEvent = currentEvent || { id: eventId, name: eventName };
+      currentTeam  = { id: teamId, name: teamName };
+
+      setBreadcrumb([
+        { label: 'Bonspiels', params: {} },
+        { label: 'Teams',     params: { event: eventId } },
+        { label: teamName },
+      ]);
+
+      document.getElementById('bracket-team-name').textContent  = teamName;
+      document.getElementById('bracket-event-name').textContent = eventName;
+
+      const root = parseTree(doc);
+      if (!root) throw new Error('No game tree found on this page.');
+
+      document.getElementById('svg-wrapper').innerHTML = buildSVG(root);
+
+      document.getElementById('dl-svg').onclick = () => doDownloadSVG(teamName);
+      document.getElementById('dl-png').onclick = () => doDownloadPNG(teamName);
+    } catch (err) {
+      setStatus('Could not load bracket: ' + err.message, 'error');
+    }
+  }
+
+  // ── Bracket parsing (same logic as before, accepts a doc param) ───────────
+  const DAY_ORDER = {monday:0,tuesday:1,wednesday:2,thursday:3,friday:4,saturday:5,sunday:6};
+
+  function parseDrawTime(s) {
+    if (!s) return 99999;
+    const lo = s.toLowerCase();
+    let day = 5;
+    for (const [k,v] of Object.entries(DAY_ORDER)) { if (lo.includes(k)) { day=v; break; } }
+    const m = lo.match(/(\d+):(\d+)\s*(am|pm)/);
+    if (!m) return day*10000;
+    let h=parseInt(m[1]), min=parseInt(m[2]);
+    if (m[3]==='pm'&&h!==12) h+=12;
+    if (m[3]==='am'&&h===12) h=0;
+    return day*10000+h*100+min;
+  }
+
+  function timeValToMinutes(tv) {
+    if (!tv||tv>=99999) return null;
+    return Math.floor(tv/10000)*1440 + Math.floor((tv%10000)/100)*60 + tv%100;
+  }
+
+  function getTier(id) {
+    const c=(id||'').replace(/\d/g,'').toUpperCase().charAt(0);
+    return ['A','B','C','D','E'].includes(c)?c:'X';
+  }
+
+  function esc(s) {
+    return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function parseGameText(el) {
+    const text = el.textContent||'';
+    const gm = text.match(/Game\s+([A-Z]\d+)/i); if (!gm) return null;
+    const gameId = gm[1].toUpperCase();
+    const tm = text.match(/(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+\d+:\d+\s*(?:am|pm)/i);
+    let opponent = null;
+    const vsIdx = text.indexOf('vs.');
+    if (vsIdx !== -1) {
+      const fr = el.querySelector('.forwardref');
+      const tl = el.querySelector('a.team');
+      opponent = tl ? tl.textContent.trim()
+               : fr ? fr.textContent.replace(/\u00a0/g,' ').trim()
+               : text.substring(vsIdx+3).trim().split('\n')[0].trim();
+    }
+    const sm = text.match(/\b(\d+)\s*[-–]\s*(\d+)\b/);
+    return {
+      gameId, tier: getTier(gameId),
+      time: tm ? tm[0].trim() : null,
+      timeVal: tm ? parseDrawTime(tm[0]) : 99999,
+      opponent,
+      score: sm ? `${sm[1]}-${sm[2]}` : null,
+      won: /\bW\b/.test(text)&&sm ? true : /\bL\b/.test(text)&&sm ? false : null,
+      winChild: null, loseChild: null,
+    };
+  }
+
+  function parseContainer(containerEl) {
+    const results=[], kids=Array.from(containerEl.children);
+    let i=0;
+    while (i<kids.length) {
+      const kid=kids[i], em=kid.querySelector(':scope > em');
+      if (em) {
+        const et=em.textContent.trim().toLowerCase();
+        const outcome=et.startsWith('win')?'win':et.startsWith('los')?'lose':'unknown';
+        const node=parseGameText(kid);
+        if (node) {
+          const next=kids[i+1];
+          if (next&&(next.classList.contains('leftconnect')||next.classList.contains('noconnect'))) {
+            parseContainer(next).forEach(c=>{
+              if (c.outcome==='win') node.winChild=c.node;
+              else if (c.outcome==='lose') node.loseChild=c.node;
+            });
+            i+=2;
+          } else i++;
+          results.push({outcome,node});
+        } else i++;
+      } else i++;
+    }
+    return results;
+  }
+
+  function parseTree(doc) {
+    let rootSpan=null;
+    for (const el of doc.querySelectorAll('div[style*="margin-top"] span'))
+      if (/Game\s+[A-Z]\d+/i.test(el.textContent)) { rootSpan=el; break; }
+    if (!rootSpan) return null;
+    const rootDiv=rootSpan.closest('div[style*="margin-top"]');
+    const rootNode=parseGameText(rootDiv||rootSpan);
+    if (!rootNode) return null;
+    let connector=rootDiv?rootDiv.nextElementSibling:null;
+    while (connector&&connector.tagName!=='DIV') connector=connector.nextElementSibling;
+    if (connector) parseContainer(connector).forEach(c=>{
+      if (c.outcome==='win') rootNode.winChild=c.node;
+      else if (c.outcome==='lose') rootNode.loseChild=c.node;
+    });
+    return rootNode;
+  }
+
+  function getTeamName(doc) {
+    for (const sel of ['p[style*="x-large"]','h1','.team-name']) {
+      const el=doc.querySelector(sel); if (el) return el.textContent.trim();
+    }
+    return 'Team';
+  }
+
+  // ── Layout ────────────────────────────────────────────────────────────────
+  const NODE_W=150, NODE_H=68, COL_GAP=20, TIME_AXIS_W=90, GAP_THRESH=180;
+
+  function leafCount(n) { return n ? (leafCount(n.winChild)+leafCount(n.loseChild))||1 : 0; }
+
+  function assignRows(node, start, map) {
+    if (!node) return start;
+    const wL=leafCount(node.winChild);
+    let wC=start, lC=start;
+    if (node.winChild&&node.loseChild) { wC=assignRows(node.winChild,start,map); lC=assignRows(node.loseChild,start+wL,map); }
+    else if (node.winChild) { wC=assignRows(node.winChild,start,map); }
+    else if (node.loseChild) { lC=assignRows(node.loseChild,start,map); }
+    map.set(node,(node.winChild||node.loseChild)?(wC+lC)/2:start);
+    return map.get(node);
+  }
+
+  function buildTimeYMap(root) {
+    const tvs=new Set();
+    (function c(n){if(!n)return;tvs.add(n.timeVal);c(n.winChild);c(n.loseChild);})(root);
+    const sorted=[...tvs].filter(t=>t<99999).sort((a,b)=>a-b);
+    if (sorted.length<=1) return new Map(sorted.map((t,i)=>[t,i*10]));
+    const mins=sorted.map(timeValToMinutes), span=mins[mins.length-1]-mins[0];
+    const propY=mins.map(m=>(m-mins[0])/span*1000);
+    const MIN_GAP=NODE_H+50, fy=[propY[0]];
+    for (let i=1;i<sorted.length;i++) fy.push(Math.max(propY[i],fy[i-1]+MIN_GAP));
+    return new Map(sorted.map((t,i)=>[t,fy[i]]));
+  }
+
+  function layout(root) {
+    const yMap=buildTimeYMap(root), colMap=new Map();
+    assignRows(root,0,colMap);
+    const leaves=leafCount(root), maxY=Math.max(...yMap.values());
+    const colW=NODE_W+COL_GAP;
+    return {
+      pixMap: new Map([...colMap].map(([n,col])=>[n,{
+        x: TIME_AXIS_W+col*colW+COL_GAP/2,
+        y: yMap.get(n.timeVal)??10,
+      }])),
+      yMap,
+      svgW: TIME_AXIS_W+leaves*colW+COL_GAP,
+      svgH: maxY+NODE_H+20,
+    };
+  }
+
+  function markStates(root) {
+    const m=new Map(); let next=false;
+    (function w(n){
+      if(!n)return;
+      if(n.score!==null||n.won!==null) m.set(n,n.won?'done-win':'done-lose');
+      else if(!next){m.set(n,'next');next=true;}
+      else m.set(n,'potential');
+      w(n.winChild);w(n.loseChild);
+    })(root);
+    return m;
+  }
+
+  // ── SVG ───────────────────────────────────────────────────────────────────
+  function buildSVG(root) {
+    const {pixMap,yMap,svgW,svgH}=layout(root);
+    const states=markStates(root);
+    const sortedTVs=[...yMap.keys()].sort((a,b)=>a-b);
+
+    function yForTime(tv) {
+      if (yMap.has(tv)) return yMap.get(tv);
+      const tm=timeValToMinutes(tv); if (!tm) return 0;
+      let prev=null,next=null;
+      for (const t of sortedTVs) { const m=timeValToMinutes(t); if(m<=tm)prev=t; else if(!next)next=t; }
+      if (!prev) return 0; if (!next) return svgH;
+      const m0=timeValToMinutes(prev),m1=timeValToMinutes(next);
+      const y0=(yMap.get(prev)||0)+NODE_H, y1=yMap.get(next)||0;
+      return y0+(tm-m0)/(m1-m0)*(y1-y0);
+    }
+
+    const p=[];
+    p.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgW} ${svgH}" width="100%" style="display:block">`);
+
+    // Day bands
+    const DC=['#f3eeff','#fff5e6','#e6f7ff','#fff3e6','#fffbe6','#e8efff','#edfff3'];
+    const DN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const fd=Math.floor(sortedTVs[0]/10000), ld=Math.floor(sortedTVs[sortedTVs.length-1]/10000);
+    for (let d=fd;d<=ld;d++) {
+      const y1=d===fd?0:yForTime(d*10000), y2=d===ld?svgH:yForTime((d+1)*10000);
+      p.push(`<rect x="0" y="${y1.toFixed(1)}" width="${svgW}" height="${(y2-y1).toFixed(1)}" fill="${DC[d%7]}"/>`);
+      p.push(`<text class="ccbv-day-band-label" x="${TIME_AXIS_W-20}" y="${((y1+y2)/2).toFixed(1)}" text-anchor="end" dominant-baseline="middle">${DN[d%7]}</text>`);
+    }
+
+    // Axis spine + gap indicators
+    const SX=TIME_AXIS_W-8;
+    p.push(`<line class="ccbv-axis-spine" x1="${SX}" y1="0" x2="${SX}" y2="${svgH}"/>`);
+
+    const tvLabels=new Map();
+    (function cl(n){if(!n)return;if(n.timeVal<99999&&n.time&&!tvLabels.has(n.timeVal))tvLabels.set(n.timeVal,n.time);cl(n.winChild);cl(n.loseChild);})(root);
+
+    for (let i=0;i<sortedTVs.length-1;i++) {
+      const ta=sortedTVs[i],tb=sortedTVs[i+1];
+      const ma=timeValToMinutes(ta),mb=timeValToMinutes(tb);
+      if(!ma||!mb||mb-ma<GAP_THRESH) continue;
+      const gt=(yMap.get(ta)||0)+NODE_H, gb=yMap.get(tb)||0, mid=(gt+gb)/2;
+      const hrs=Math.floor((mb-ma)/60), mins=(mb-ma)%60;
+      p.push(`<rect class="ccbv-gap-band" x="${SX}" y="${gt.toFixed(1)}" width="${svgW-SX}" height="${(gb-gt).toFixed(1)}"/>`);
+      const zh=12;
+      p.push(`<rect x="${SX-7}" y="${(mid-zh).toFixed(1)}" width="15" height="${(zh*2).toFixed(1)}" fill="white"/>`);
+      p.push(`<polyline class="ccbv-axis-break" points="${SX-5},${(mid-zh).toFixed(1)} ${SX+5},${(mid-zh/3).toFixed(1)} ${SX-5},${(mid+zh/3).toFixed(1)} ${SX+5},${(mid+zh).toFixed(1)}"/>`);
+      p.push(`<text class="ccbv-gap-label" x="${SX-10}" y="${mid.toFixed(1)}" text-anchor="end" dominant-baseline="middle">${mins>0?`${hrs}h ${mins}m`:`${hrs}h`}</text>`);
+    }
+
+    for (const [tv,label] of tvLabels) {
+      const y=yMap.get(tv); if(y==null)continue;
+      const cy=y+NODE_H/2, pts=label.split(' ');
+      p.push(`<line class="ccbv-axis-tick" x1="${SX-6}" y1="${cy}" x2="${SX}" y2="${cy}"/>`);
+      p.push(`<line class="ccbv-time-line" x1="${SX}" y1="${cy}" x2="${svgW}" y2="${cy}"/>`);
+      p.push(`<text class="ccbv-axis-day"  x="${SX-9}" y="${cy-5}"  text-anchor="end">${esc(pts[0]||'')}</text>`);
+      p.push(`<text class="ccbv-axis-time" x="${SX-9}" y="${cy+10}" text-anchor="end">${esc(pts.slice(1).join(' '))}</text>`);
+    }
+
+    // Collect nodes
+    const nodes=[];
+    (function col(n){if(!n)return;nodes.push(n);col(n.winChild);col(n.loseChild);})(root);
+
+    // Edges
+    for (const n of nodes) {
+      const f=pixMap.get(n); if(!f)continue;
+      const fx=f.x+NODE_W/2, fy=f.y+NODE_H;
+      for (const [child,cls,lbl] of [[n.winChild,'win','W'],[n.loseChild,'lose','L']]) {
+        if (!child) continue;
+        const t=pixMap.get(child); if(!t)continue;
+        const tx=t.x+NODE_W/2, ty=t.y, my=fy+(ty-fy)*.5;
+        const dash=states.get(child)==='potential'?' stroke-dasharray="6,4"':'';
+        p.push(`<path class="ccbv-edge ccbv-edge-${cls}"${dash} d="M${fx},${fy} C${fx},${my} ${tx},${my} ${tx},${ty}"/>`);
+        p.push(`<text class="ccbv-edge-label ccbv-edge-label-${cls}" x="${(fx+tx)/2+(cls==='win'?-10:10)}" y="${my}" text-anchor="middle">${lbl}</text>`);
+      }
+    }
+
+    // Nodes
+    for (const n of nodes) {
+      const pos=pixMap.get(n); if(!pos)continue;
+      const {x,y}=pos, st=states.get(n)||'potential';
+      p.push(`<g class="ccbv-node ccbv-tier-${n.tier} ccbv-state-${st}" transform="translate(${x},${y})">`);
+      p.push(`  <rect width="${NODE_W}" height="${NODE_H}" rx="5"/>`);
+      p.push(`  <text class="game-id" x="7" y="17">${esc(n.gameId)}</text>`);
+      if (n.score) p.push(`  <text class="game-score" x="${NODE_W-6}" y="17" text-anchor="end">${esc((n.won===true?'✓':n.won===false?'✗':'')+' '+n.score)}</text>`);
+      else if (st==='next') p.push(`  <text class="game-next-label" x="${NODE_W-6}" y="17" text-anchor="end">▶ Next</text>`);
+      else if (st==='potential') p.push(`  <text class="game-potential-label" x="${NODE_W-6}" y="17" text-anchor="end">?</text>`);
+      p.push(`  <line x1="0" y1="22" x2="${NODE_W}" y2="22" stroke="rgba(0,0,0,.15)" stroke-width="1"/>`);
+      if (n.time) p.push(`  <text class="game-time" x="7" y="35">${esc(n.time)}</text>`);
+      if (n.opponent) { const o=n.opponent.length>18?n.opponent.slice(0,17)+'…':n.opponent; p.push(`  <text class="game-vs" x="7" y="52">vs ${esc(o)}</text>`); }
+      if (st==='potential') p.push(`  <text class="game-tier-hint" x="${NODE_W/2}" y="${NODE_H-4}" text-anchor="middle">${esc(n.tier)} bracket</text>`);
+      p.push(`</g>`);
+    }
+    p.push('</svg>');
+    return p.join('\n');
+  }
+
+  // ── Export ────────────────────────────────────────────────────────────────
+  const ECSS=`.ccbv-node rect{stroke-width:1.5}.ccbv-node text{font-size:11px;font-family:Arial,sans-serif}.game-id{font-weight:bold;font-size:12px;font-family:Arial,sans-serif;fill:#222}.game-time{font-size:10px;fill:#555;font-family:Arial,sans-serif}.game-vs{font-size:10px;font-family:Arial,sans-serif;fill:#222}.game-score{font-size:11px;font-weight:bold;font-family:Arial,sans-serif;fill:#222}.game-next-label{font-size:10px;fill:#e67300;font-weight:bold;font-family:Arial,sans-serif}.game-potential-label{font-size:13px;fill:#aaa;font-family:Arial,sans-serif}.game-tier-hint{font-size:9px;fill:#888;font-family:Arial,sans-serif}.ccbv-edge{fill:none;stroke-width:2}.ccbv-edge-label{font-size:11px;font-weight:bold;font-family:Arial,sans-serif}.ccbv-edge-win{stroke:#2a7a2a}.ccbv-edge-lose{stroke:#c0392b}.ccbv-edge-label-win{fill:#2a7a2a}.ccbv-edge-label-lose{fill:#c0392b}.ccbv-tier-A rect{fill:#FFFFD7;stroke:#c8c800}.ccbv-tier-B rect{fill:#DCE6F1;stroke:#5b8ec5}.ccbv-tier-C rect{fill:#F0DCDB;stroke:#c57070}.ccbv-tier-D rect{fill:#D7D7FF;stroke:#7070c5}.ccbv-tier-E rect{fill:#e0f0e0;stroke:#70a070}.ccbv-tier-X rect{fill:#f0f0f0;stroke:#999}.ccbv-state-done-win rect{opacity:.75}.ccbv-state-done-lose rect{opacity:.4}.ccbv-state-next rect{stroke-width:3;stroke:#e67300}.ccbv-state-potential rect{stroke-dasharray:5,3;opacity:.6}.ccbv-day-band-label{font-size:12px;font-weight:bold;font-family:Arial,sans-serif;fill:#aaa}.ccbv-axis-spine{stroke:#bbb;stroke-width:1.5}.ccbv-axis-tick{stroke:#bbb;stroke-width:1.5}.ccbv-axis-day{font-size:11px;font-weight:bold;fill:#444;font-family:Arial,sans-serif}.ccbv-axis-time{font-size:10px;fill:#666;font-family:Arial,sans-serif}.ccbv-time-line{stroke:#ececec;stroke-width:1;stroke-dasharray:4,4}.ccbv-gap-band{fill:rgba(0,0,0,.04)}.ccbv-axis-break{fill:none;stroke:#bbb;stroke-width:1.5;stroke-linejoin:round}.ccbv-gap-label{font-size:9px;fill:#999;font-family:Arial,sans-serif;font-style:italic}`;
+
+  function exportSVG() {
+    const el=document.querySelector('#svg-wrapper svg'); if(!el)return null;
+    const clone=el.cloneNode(true);
+    const [,,vw,vh]=(el.getAttribute('viewBox')||'0 0 800 600').split(' ').map(Number);
+    clone.setAttribute('width',vw); clone.setAttribute('height',vh); clone.removeAttribute('style');
+    const s=document.createElementNS('http://www.w3.org/2000/svg','style'); s.textContent=ECSS;
+    clone.insertBefore(s,clone.firstChild);
+    return {str:new XMLSerializer().serializeToString(clone),vw,vh};
+  }
+
+  function doDownloadSVG(name) {
+    const r=exportSVG(); if(!r)return;
+    dl(URL.createObjectURL(new Blob([r.str],{type:'image/svg+xml'})), slug(name)+'_bracket.svg');
+  }
+
+  function doDownloadPNG(name) {
+    const r=exportSVG(); if(!r)return;
+    const sc=2, blob=new Blob([r.str],{type:'image/svg+xml'}), url=URL.createObjectURL(blob);
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement('canvas'); c.width=r.vw*sc; c.height=r.vh*sc;
+      const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
+      ctx.drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url);
+      dl(c.toDataURL('image/png'), slug(name)+'_bracket.png');
+    };
+    img.src=url;
+  }
+
+  function dl(href, filename) {
+    const a=document.createElement('a'); a.href=href; a.download=filename; a.click();
+    setTimeout(()=>URL.revokeObjectURL(href),5000);
+  }
+  function slug(s){return(s||'team').replace(/[^a-z0-9]/gi,'_');}
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  const init = getParams();
+  navigate(init, false);
+})();
+</script>
+</body>
+</html>
