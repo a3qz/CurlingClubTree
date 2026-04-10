@@ -96,6 +96,7 @@
       margin-bottom: 8px;
     }
     .pill-upcoming  { background: #dff0d8; color: #2d6a2d; }
+    .pill-active    { background: #fef3cd; color: #856404; }
     .pill-planning  { background: #d9edf7; color: #1a5276; }
     .pill-completed { background: #f5f5f5; color: #888; }
 
@@ -336,8 +337,10 @@
 
       function pillFor(header) {
         const h = header.toLowerCase();
-        if (h.includes('upcoming') || h.includes('current')) return ['pill-upcoming', 'Upcoming'];
-        if (h.includes('planning'))                           return ['pill-planning', 'Planning'];
+        if (h.includes('upcoming'))                                        return ['pill-upcoming', 'Upcoming'];
+        if (h.includes('in progress') || h.includes('current') || h.includes('active')) return ['pill-active',   'In Progress'];
+        if (h.includes('planning'))                                        return ['pill-planning', 'Planning'];
+        if (h.includes('past') || h.includes('complet') || h.includes('previous') || h.includes('archive')) return ['pill-completed', 'Past'];
         return ['pill-completed', 'Past'];
       }
 
