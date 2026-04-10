@@ -477,6 +477,111 @@
     return parts.join('\n');
   }
 
+  // ── Export ────────────────────────────────────────────────────────────────
+
+  // All SVG-relevant CSS, inlined so exported files are self-contained.
+  const EMBEDDED_SVG_CSS = `
+    .ccbv-node rect { stroke-width: 1.5; }
+    .ccbv-node text { font-size: 11px; font-family: Arial, sans-serif; }
+    .game-id   { font-weight: bold; font-size: 12px; font-family: Arial, sans-serif; fill: #222; }
+    .game-time { font-size: 10px; fill: #555; font-family: Arial, sans-serif; }
+    .game-vs   { font-size: 10px; font-family: Arial, sans-serif; fill: #222; }
+    .game-score         { font-size: 11px; font-weight: bold; font-family: Arial, sans-serif; fill: #222; }
+    .game-next-label    { font-size: 10px; fill: #e67300; font-weight: bold; font-family: Arial, sans-serif; }
+    .game-potential-label { font-size: 13px; fill: #aaa; font-family: Arial, sans-serif; }
+    .game-tier-hint     { font-size: 9px; fill: #888; font-family: Arial, sans-serif; }
+    .ccbv-edge          { fill: none; stroke-width: 2; }
+    .ccbv-edge-label    { font-size: 11px; font-weight: bold; font-family: Arial, sans-serif; }
+    .ccbv-edge-win      { stroke: #2a7a2a; }
+    .ccbv-edge-lose     { stroke: #c0392b; }
+    .ccbv-edge-label-win  { fill: #2a7a2a; }
+    .ccbv-edge-label-lose { fill: #c0392b; }
+    .ccbv-tier-A rect { fill: #FFFFD7; stroke: #c8c800; }
+    .ccbv-tier-B rect { fill: #DCE6F1; stroke: #5b8ec5; }
+    .ccbv-tier-C rect { fill: #F0DCDB; stroke: #c57070; }
+    .ccbv-tier-D rect { fill: #D7D7FF; stroke: #7070c5; }
+    .ccbv-tier-E rect { fill: #e0f0e0; stroke: #70a070; }
+    .ccbv-tier-X rect { fill: #f0f0f0; stroke: #999; }
+    .ccbv-state-done-win  rect { opacity: 0.75; }
+    .ccbv-state-done-lose rect { opacity: 0.4; }
+    .ccbv-state-next rect      { stroke-width: 3; stroke: #e67300; }
+    .ccbv-state-potential rect { stroke-dasharray: 5,3; opacity: 0.6; }
+    .ccbv-day-band-label { font-size: 12px; font-weight: bold; font-family: Arial, sans-serif; fill: #aaa; }
+    .ccbv-axis-spine { stroke: #bbb; stroke-width: 1.5; }
+    .ccbv-axis-tick  { stroke: #bbb; stroke-width: 1.5; }
+    .ccbv-axis-day  { font-size: 11px; font-weight: bold; fill: #444; font-family: Arial, sans-serif; }
+    .ccbv-axis-time { font-size: 10px; fill: #666; font-family: Arial, sans-serif; }
+    .ccbv-time-line { stroke: #ececec; stroke-width: 1; stroke-dasharray: 4,4; }
+  `;
+
+  function exportableSVGString() {
+    const svgEl = document.querySelector('#ccbv-svg-wrapper svg');
+    if (!svgEl) return null;
+
+    const clone = svgEl.cloneNode(true);
+
+    // Set explicit pixel dimensions from viewBox so it renders at full size
+    const [, , vw, vh] = (svgEl.getAttribute('viewBox') || '0 0 800 600')
+      .split(' ').map(Number);
+    clone.setAttribute('width', vw);
+    clone.setAttribute('height', vh);
+    clone.removeAttribute('style'); // remove width:100%
+
+    // Embed CSS
+    const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    styleEl.textContent = EMBEDDED_SVG_CSS;
+    clone.insertBefore(styleEl, clone.firstChild);
+
+    return new XMLSerializer().serializeToString(clone);
+  }
+
+  function downloadSVG(teamName) {
+    const svgStr = exportableSVGString();
+    if (!svgStr) return;
+    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `${teamName.replace(/[^a-z0-9]/gi, '_')}_bracket.svg`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  function downloadPNG(teamName) {
+    const svgStr = exportableSVGString();
+    if (!svgStr) return;
+
+    const svgEl = document.querySelector('#ccbv-svg-wrapper svg');
+    const [, , vw, vh] = (svgEl?.getAttribute('viewBox') || '0 0 800 600')
+      .split(' ').map(Number);
+
+    // Render at 2× for retina-quality output
+    const scale  = 2;
+    const cw = vw * scale, ch = vh * scale;
+
+    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const img  = new Image();
+
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width  = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.drawImage(img, 0, 0, cw, ch);
+      URL.revokeObjectURL(url);
+
+      const a    = document.createElement('a');
+      a.href     = canvas.toDataURL('image/png');
+      a.download = `${teamName.replace(/[^a-z0-9]/gi, '_')}_bracket.png`;
+      a.click();
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  }
+
   // ── Inject UI ─────────────────────────────────────────────────────────────
 
   function getTeamName() {
@@ -503,6 +608,8 @@
       <h3 style="margin:0 0 8px">Bracket View — ${escXml(teamName)}</h3>
       <div id="ccbv-controls">
         <button id="ccbv-toggle">Hide Original</button>
+        <button id="ccbv-dl-svg">⬇ SVG</button>
+        <button id="ccbv-dl-png">⬇ PNG</button>
         <span class="ccbv-legend">
           <span class="ccbv-swatch" style="background:#FFFFD7;border-color:#c8c800"></span>A &nbsp;
           <span class="ccbv-swatch" style="background:#DCE6F1;border-color:#5b8ec5"></span>B &nbsp;
@@ -525,6 +632,9 @@
     } else {
       (document.querySelector('.field-item') || document.body).appendChild(container);
     }
+
+    document.getElementById('ccbv-dl-svg').addEventListener('click', () => downloadSVG(teamName));
+    document.getElementById('ccbv-dl-png').addEventListener('click', () => downloadPNG(teamName));
 
     // Toggle original view (the root game div + its connector sibling)
     document.getElementById('ccbv-toggle').addEventListener('click', function () {
